@@ -343,6 +343,16 @@ app.add_middleware(
 # -------------------------------------------------------------------
 # AUTH ROUTES
 # -------------------------------------------------------------------
+
+@app.get("/debug/db")
+async def debug_db():
+    try:
+        doc = await db.users.insert_one({"test": True})
+        return {"ok": True, "id": str(doc.inserted_id)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 @app.post("/auth/register", response_model=UserRead)
 async def register(data: UserCreate):
     existing = await get_user_by_email(data.email)
