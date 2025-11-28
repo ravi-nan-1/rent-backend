@@ -2,6 +2,7 @@ import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Literal, Dict, Any
+from supabase import create_client, Client
 
 from bson import ObjectId
 from dotenv import load_dotenv
@@ -39,8 +40,12 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
 
-UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
 
 # -------------------------------------------------------------------
 # DB (Motor)
@@ -332,7 +337,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/static", StaticFiles(directory=str(UPLOAD_DIR)), name="static")
+
 
 
 # -------------------------------------------------------------------
@@ -1042,6 +1047,28 @@ async def list_landlord_reviews(landlord_id: str):
             )
         )
     return results
+
+
+
+@app.post("/apartments/{id}/photos")
+async def upload_photo(id: str, file: UploadFile = File(...)):
+    contents = await file.read()
+    ext = file.filename.split('.')[-1]
+    filename = f"{id}_{int(datetime.utcnow().timestamp())}.{ext}"
+
+    supabase.storage \
+        .from_(os.getenv("SUPABASE_BUCKET")) \
+        .upload(filename, contents)
+
+    image_url = f"{SUPABASE_URL}/storage/v1/object/public/{os.getenv('SUPABASE_BUCKET')}/{filename}"
+
+    await db.photos.insert_one({
+        "apartment_id": id,
+        "image_url": image_url,
+        "created_at": datetime.utcnow()
+    })
+
+    return {"image_url": image_url}
 
 
 # -------------------------------------------------------------------
