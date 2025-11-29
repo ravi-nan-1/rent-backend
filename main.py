@@ -608,16 +608,9 @@ async def create_apartment(
 ):
     doc = data.dict()
 
-    lat_val = doc.get("lat")
-    lng_val = doc.get("lng")
-
-    # Auto-geocode when coordinates missing or = 0
-    if lat_val in [0, None, ""] or lng_val in [0, None, ""]:
-        print("⚠️ Auto geocoding for:", doc["address"], doc["city"])
-        lat, lon = await geocode_address(doc["address"], doc["city"])
-        print("📍 Geocoded to:", lat, lon)
-        doc["lat"] = lat
-        doc["lng"] = lon
+    # Frontend MUST send lat & lng
+    if not doc.get("lat") or not doc.get("lng"):
+        raise HTTPException(400, "lat and lng are required")
 
     doc["landlord_id"] = str(current_user["_id"])
     doc["created_at"] = datetime.utcnow()
@@ -626,6 +619,7 @@ async def create_apartment(
     res = await db.apartments.insert_one(doc)
     ap = await db.apartments.find_one({"_id": res.inserted_id})
     return await fetch_apartment_with_photos(ap)
+
 
 
 
