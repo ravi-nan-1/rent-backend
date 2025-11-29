@@ -10,5 +10,6 @@ google-auth
 requests
 supabase
 argon2-cffi
+httpx
 
 
