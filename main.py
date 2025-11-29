@@ -580,6 +580,13 @@ async def create_apartment(
     current_user: Dict[str, Any] = Depends(require_roles("landlord", "admin")),
 ):
     doc = data.dict()
+
+    # Auto-generate lat/lng if not provided
+    if (not doc.get("lat")) or (not doc.get("lng")):
+        lat, lon = await geocode_address(doc["address"], doc["city"])
+        doc["lat"] = lat
+        doc["lng"] = lon
+
     doc["landlord_id"] = str(current_user["_id"])
     doc["created_at"] = datetime.utcnow()
     doc["updated_at"] = datetime.utcnow()
@@ -587,6 +594,7 @@ async def create_apartment(
     res = await db.apartments.insert_one(doc)
     ap = await db.apartments.find_one({"_id": res.inserted_id})
     return await fetch_apartment_with_photos(ap)
+
 
 
 @app.get("/apartments", response_model=List[ApartmentRead])
@@ -1147,6 +1155,21 @@ async def upload_photo(id: str, file: UploadFile = File(...)):
     })
 
     return {"image_url": image_url}
+
+import httpx
+
+async def geocode_address(address: str, city: str):
+    query = f"{address}, {city}"
+    url = f"https://nominatim.openstreetmap.org/search?format=json&q={query}"
+
+    async with httpx.AsyncClient() as client:
+        r = await client.get(url, headers={"User-Agent": "rentapartment-app"})
+        data = r.json()
+
+    if not data:
+        return None, None
+
+    return float(data[0]["lat"]), float(data[0]["lon"])
 
 
 # -------------------------------------------------------------------
