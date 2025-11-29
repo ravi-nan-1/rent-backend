@@ -24,6 +24,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
 from jose import jwt, JWTError
 from passlib.context import CryptContext
+from fastapi import APIRouter
+short = APIRouter()
 
 # -------------------------------------------------------------------
 # ENV & CONFIG
@@ -1205,37 +1207,35 @@ async def health():
 
 import string, random
 from fastapi.responses import RedirectResponse
+from fastapi import HTTPException
 
 class ShortenRequest(BaseModel):
     long_url: str
 
 
-# -------------------------------------------
-# helper to generate unique short code
-# -------------------------------------------
 def generate_code(length: int = 6):
     chars = string.ascii_letters + string.digits
     return "".join(random.choice(chars) for _ in range(length))
 
 
 # -------------------------------------------
-# 1️⃣  CREATE SHORT URL
-# POST /shorten
+# 1️⃣ CREATE SHORT URL
+# POST /short/create
 # -------------------------------------------
-@app.post("/shorten")
+@short.post("/create")
 async def create_short_url(data: ShortenRequest):
-    long_url = data.long_url
+    long_url = data.long_url.strip()
 
-    # Check if long_url was already shortened
+    # Check if long_url already exists
     existing = await db.short_urls.find_one({"long_url": long_url})
     if existing:
         return {
             "short_code": existing["short_code"],
-            "short_url": f"{FRONTEND_ORIGIN}/{existing['short_code']}",
+            "short_url": f"{FRONTEND_ORIGIN}/s/{existing['short_code']}",
             "long_url": long_url,
         }
 
-    # Generate unique code
+    # Generate code
     while True:
         code = generate_code(6)
         exist = await db.short_urls.find_one({"short_code": code})
@@ -1247,23 +1247,23 @@ async def create_short_url(data: ShortenRequest):
         "long_url": long_url,
         "clicks": 0,
         "created_at": datetime.utcnow(),
-        "last_clicked_at": None
+        "last_clicked_at": None,
     }
 
     await db.short_urls.insert_one(doc)
 
     return {
         "short_code": code,
-        "short_url": f"{FRONTEND_ORIGIN}/{code}",
-        "long_url": long_url
+        "short_url": f"{FRONTEND_ORIGIN}/s/{code}",
+        "long_url": long_url,
     }
 
 
 # -------------------------------------------
-# 2️⃣  GET SHORT URL STATS
-# GET /stats/{short_code}
+# 2️⃣ GET STATS
+# GET /short/stats/{code}
 # -------------------------------------------
-@app.get("/stats/{short_code}")
+@short.get("/stats/{short_code}")
 async def url_stats(short_code: str):
     record = await db.short_urls.find_one({"short_code": short_code})
     if not record:
@@ -1281,24 +1281,27 @@ async def url_stats(short_code: str):
 
 
 # -------------------------------------------
-# 3️⃣  REDIRECT SHORT URL
-# GET /{short_code}
-# MUST be LAST ROUTE in the file!
+# 3️⃣ REDIRECT
+# GET /s/{code}
 # -------------------------------------------
-@app.get("/{short_code}")
+@short.get("/s/{short_code}")
 async def redirect_short_url(short_code: str):
     record = await db.short_urls.find_one({"short_code": short_code})
     if not record:
         raise HTTPException(status_code=404, detail="Short URL not found")
 
-    # Update click analytics
+    # Update analytics
     await db.short_urls.update_one(
         {"short_code": short_code},
         {
             "$inc": {"clicks": 1},
-            "$set": {"last_clicked_at": datetime.utcnow()}
-        }
+            "$set": {"last_clicked_at": datetime.utcnow()},
+        },
     )
 
     return RedirectResponse(record["long_url"])
+
+
+# Register router
+app.include_router(short, prefix="/short", tags=["ShortURL"])
 
