@@ -1187,3 +1187,111 @@ async def upload_photo(id: str, file: UploadFile = File(...)):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+
+
+
+# ======================================================
+# ===============  TINYURL URL SHORTENER  ==============
+# ======================================================
+
+import string, random
+from fastapi.responses import RedirectResponse
+
+class ShortenRequest(BaseModel):
+    long_url: str
+
+
+# -------------------------------------------
+# helper to generate unique short code
+# -------------------------------------------
+def generate_code(length: int = 6):
+    chars = string.ascii_letters + string.digits
+    return "".join(random.choice(chars) for _ in range(length))
+
+
+# -------------------------------------------
+# 1️⃣  CREATE SHORT URL
+# POST /shorten
+# -------------------------------------------
+@app.post("/shorten")
+async def create_short_url(data: ShortenRequest):
+    long_url = data.long_url
+
+    # Check if long_url was already shortened
+    existing = await db.short_urls.find_one({"long_url": long_url})
+    if existing:
+        return {
+            "short_code": existing["short_code"],
+            "short_url": f"{FRONTEND_ORIGIN}/{existing['short_code']}",
+            "long_url": long_url,
+        }
+
+    # Generate unique code
+    while True:
+        code = generate_code(6)
+        exist = await db.short_urls.find_one({"short_code": code})
+        if not exist:
+            break
+
+    doc = {
+        "short_code": code,
+        "long_url": long_url,
+        "clicks": 0,
+        "created_at": datetime.utcnow(),
+        "last_clicked_at": None
+    }
+
+    await db.short_urls.insert_one(doc)
+
+    return {
+        "short_code": code,
+        "short_url": f"{FRONTEND_ORIGIN}/{code}",
+        "long_url": long_url
+    }
+
+
+# -------------------------------------------
+# 2️⃣  GET SHORT URL STATS
+# GET /stats/{short_code}
+# -------------------------------------------
+@app.get("/stats/{short_code}")
+async def url_stats(short_code: str):
+    record = await db.short_urls.find_one({"short_code": short_code})
+    if not record:
+        raise HTTPException(status_code=404, detail="Short URL not found")
+
+    record = serialize_doc(record)
+
+    return {
+        "short_code": record["short_code"],
+        "long_url": record["long_url"],
+        "clicks": record["clicks"],
+        "created_at": record["created_at"],
+        "last_clicked_at": record.get("last_clicked_at"),
+    }
+
+
+# -------------------------------------------
+# 3️⃣  REDIRECT SHORT URL
+# GET /{short_code}
+# MUST be LAST ROUTE in the file!
+# -------------------------------------------
+@app.get("/{short_code}")
+async def redirect_short_url(short_code: str):
+    record = await db.short_urls.find_one({"short_code": short_code})
+    if not record:
+        raise HTTPException(status_code=404, detail="Short URL not found")
+
+    # Update click analytics
+    await db.short_urls.update_one(
+        {"short_code": short_code},
+        {
+            "$inc": {"clicks": 1},
+            "$set": {"last_clicked_at": datetime.utcnow()}
+        }
+    )
+
+    return RedirectResponse(record["long_url"])
+
