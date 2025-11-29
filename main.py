@@ -512,6 +512,68 @@ async def fetch_apartment_with_photos(ap_doc: Dict[str, Any]) -> ApartmentRead:
     )
 
 
+
+
+from fastapi import Form
+
+@app.post("/apartmentwithpic", response_model=ApartmentRead)
+async def create_apartment(
+    apartment_json: str = Form(...),
+    photos: List[UploadFile] = File([]),
+    current_user=Depends(require_roles("landlord", "admin"))
+):
+    # Parse JSON apartment data
+    import json
+    try:
+        data = json.loads(apartment_json)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid JSON for apartment")
+
+    if len(photos) > 5:
+        raise HTTPException(status_code=400, detail="Maximum 5 photos allowed")
+
+    doc = data
+    doc["landlord_id"] = str(current_user["_id"])
+    doc["created_at"] = datetime.utcnow()
+    doc["updated_at"] = datetime.utcnow()
+
+    # Insert apartment
+    res = await db.apartments.insert_one(doc)
+    apartment_id = str(res.inserted_id)
+
+    uploaded_photos = []
+
+    # Upload each photo (max 5)
+    for file in photos:
+        ext = file.filename.split('.')[-1]
+        filename = f"{apartment_id}_{int(datetime.utcnow().timestamp())}.{ext}"
+
+        contents = await file.read()
+        supabase.storage.from_(SUPABASE_BUCKET).upload(filename, contents)
+
+        image_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{filename}"
+
+        photo_doc = {
+            "apartment_id": apartment_id,
+            "image_url": image_url,
+            "created_at": datetime.utcnow()
+        }
+
+        photo_res = await db.photos.insert_one(photo_doc)
+        photo_inserted = await db.photos.find_one({"_id": photo_res.inserted_id})
+        uploaded_photos.append(ApartmentPhotoRead(**serialize_doc(photo_inserted)))
+
+    # Build full response
+    ap = await db.apartments.find_one({"_id": res.inserted_id})
+    ap_ser = serialize_doc(ap)
+
+    return ApartmentRead(
+        **ap_ser,
+        photos=uploaded_photos
+    )
+
+
+
 @app.post("/apartments", response_model=ApartmentRead)
 async def create_apartment(
     data: ApartmentCreate,
