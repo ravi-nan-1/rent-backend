@@ -597,10 +597,13 @@ async def create_apartment(
 ):
     doc = data.dict()
 
-    # Auto-generate lat/lng if not provided
-    if (not doc.get("lat")) or (not doc.get("lng")):
+    lat_val = doc.get("lat")
+    lng_val = doc.get("lng")
+
+    # Auto geocode if missing OR 0
+    if not lat_val or not lng_val or lat_val == 0 or lng_val == 0:
         lat, lon = await geocode_address(doc["address"], doc["city"])
-        print("DEBUG GEO:", lat, lon)
+        print("GEO:", lat, lon)
         doc["lat"] = lat
         doc["lng"] = lon
 
@@ -611,6 +614,7 @@ async def create_apartment(
     res = await db.apartments.insert_one(doc)
     ap = await db.apartments.find_one({"_id": res.inserted_id})
     return await fetch_apartment_with_photos(ap)
+
 
 
 
