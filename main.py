@@ -364,16 +364,27 @@ import httpx
 
 async def geocode_address(address: str, city: str):
     query = f"{address}, {city}"
-    url = f"https://nominatim.openstreetmap.org/search?format=json&q={query}"
+    url = "https://nominatim.openstreetmap.org/search"
 
-    async with httpx.AsyncClient() as client:
-        r = await client.get(url, headers={"User-Agent": "rentapartment-app"})
-        data = r.json()
+    params = {
+        "format": "json",
+        "q": query,
+        "limit": 1
+    }
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(url, params=params, headers={
+            "User-Agent": "RentApartment/1.0 (contact: your-email@example.com)"
+        })
+
+    data = r.json()
+    print("GEOCODE RESULT:", data)
 
     if not data:
         return None, None
 
     return float(data[0]["lat"]), float(data[0]["lon"])
+
 
 @app.post("/auth/register", response_model=UserRead)
 async def register(data: UserCreate):
@@ -600,10 +611,11 @@ async def create_apartment(
     lat_val = doc.get("lat")
     lng_val = doc.get("lng")
 
-    # Auto geocode if missing OR 0
-    if not lat_val or not lng_val or lat_val == 0 or lng_val == 0:
+    # Auto-geocode when coordinates missing or = 0
+    if lat_val in [0, None, ""] or lng_val in [0, None, ""]:
+        print("⚠️ Auto geocoding for:", doc["address"], doc["city"])
         lat, lon = await geocode_address(doc["address"], doc["city"])
-        print("GEO:", lat, lon)
+        print("📍 Geocoded to:", lat, lon)
         doc["lat"] = lat
         doc["lng"] = lon
 
@@ -614,6 +626,7 @@ async def create_apartment(
     res = await db.apartments.insert_one(doc)
     ap = await db.apartments.find_one({"_id": res.inserted_id})
     return await fetch_apartment_with_photos(ap)
+
 
 
 
