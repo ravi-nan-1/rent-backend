@@ -359,6 +359,22 @@ async def debug_db():
         return {"ok": False, "error": str(e)}
 
 
+
+import httpx
+
+async def geocode_address(address: str, city: str):
+    query = f"{address}, {city}"
+    url = f"https://nominatim.openstreetmap.org/search?format=json&q={query}"
+
+    async with httpx.AsyncClient() as client:
+        r = await client.get(url, headers={"User-Agent": "rentapartment-app"})
+        data = r.json()
+
+    if not data:
+        return None, None
+
+    return float(data[0]["lat"]), float(data[0]["lon"])
+
 @app.post("/auth/register", response_model=UserRead)
 async def register(data: UserCreate):
     existing = await get_user_by_email(data.email)
@@ -1156,20 +1172,7 @@ async def upload_photo(id: str, file: UploadFile = File(...)):
 
     return {"image_url": image_url}
 
-import httpx
 
-async def geocode_address(address: str, city: str):
-    query = f"{address}, {city}"
-    url = f"https://nominatim.openstreetmap.org/search?format=json&q={query}"
-
-    async with httpx.AsyncClient() as client:
-        r = await client.get(url, headers={"User-Agent": "rentapartment-app"})
-        data = r.json()
-
-    if not data:
-        return None, None
-
-    return float(data[0]["lat"]), float(data[0]["lon"])
 
 
 # -------------------------------------------------------------------
